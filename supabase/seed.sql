@@ -1,8 +1,9 @@
 -- ============================================================================
---  Distribuidora B2B — Datos DEMO
+--  Distribuidora B2B — Datos DEMO (catálogo, clientes, precios, pedidos)
 --  Ejecutar DESPUÉS de supabase/schema.sql (Supabase > SQL Editor)
---  Usuarios demo:  admin@distribuidora.com / demo1234   (ADMIN)
---                  cliente@almacencentral.com / demo1234 (CLIENT)
+--
+--  Este seed NO crea usuarios de Supabase Auth (ver nota al final).
+--  Después de ejecutarlo, correr:  npm run seed:demo
 -- ============================================================================
 delete from public.order_items where organization_id = '11111111-1111-1111-1111-111111111111';
 delete from public.orders      where organization_id = '11111111-1111-1111-1111-111111111111';
@@ -104,41 +105,19 @@ select setval('public.order_number_seq', 1004);
 
 -- ============================================================================
 --  USUARIOS DEMO (Supabase Auth + perfil de negocio)
---  ADMIN : admin@distribuidora.com   / demo1234
---  CLIENT: cliente@almacencentral.com / demo1234
+--
+--  Los usuarios de Supabase Auth NO se crean por SQL: las tablas auth.users /
+--  auth.identities son internas y manipularlas directo rompe el login
+--  ("Invalid login credentials").
+--
+--  Crearlos con el script de bootstrap (usa la Admin API en el servidor):
+--
+--      npm run seed:demo
+--
+--  Requiere SUPABASE_SERVICE_ROLE_KEY en .env.local (solo servidor/CLI,
+--  nunca NEXT_PUBLIC_*). El script es idempotente: crea los usuarios si no
+--  existen y si ya existen les refresca el password y confirma el email.
+--
+--  ADMIN : admin@distribuidora.com    / demo1234
+--  CLIENT: cliente@almacencentral.com / demo1234  (cliente: Almacén Central)
 -- ============================================================================
-insert into auth.users (
-  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
-  confirmation_token, recovery_token, email_change_token_new, email_change
-) values
-  ('00000000-0000-0000-0000-000000000000', 'd0000000-0000-0000-0000-000000000001',
-   'authenticated', 'authenticated', 'admin@distribuidora.com',
-   crypt('demo1234', gen_salt('bf')), now(),
-   '{"provider":"email","providers":["email"]}', '{"full_name":"Sofía Administradora"}',
-   now(), now(), '', '', '', ''),
-  ('00000000-0000-0000-0000-000000000000', 'd0000000-0000-0000-0000-000000000002',
-   'authenticated', 'authenticated', 'cliente@almacencentral.com',
-   crypt('demo1234', gen_salt('bf')), now(),
-   '{"provider":"email","providers":["email"]}', '{"full_name":"Martín Almacén Central"}',
-   now(), now(), '', '', '', '')
-on conflict (id) do update
-  set encrypted_password = excluded.encrypted_password,
-      email_confirmed_at = excluded.email_confirmed_at;
-
-insert into auth.identities (id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at) values
-  (gen_random_uuid(), 'd0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001',
-   '{"sub":"d0000000-0000-0000-0000-000000000001","email":"admin@distribuidora.com"}', 'email', now(), now(), now()),
-  (gen_random_uuid(), 'd0000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000002',
-   '{"sub":"d0000000-0000-0000-0000-000000000002","email":"cliente@almacencentral.com"}', 'email', now(), now(), now())
-on conflict do nothing;
-
-insert into public.users (id, organization_id, customer_id, email, full_name, role) values
-  ('d0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', null,
-   'admin@distribuidora.com', 'Sofía Administradora', 'ADMIN'),
-  ('d0000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'b0000000-0000-0000-0000-000000000001',
-   'cliente@almacencentral.com', 'Martín Almacén Central', 'CLIENT')
-on conflict (id) do update
-  set organization_id = excluded.organization_id,
-      customer_id = excluded.customer_id,
-      role = excluded.role;
