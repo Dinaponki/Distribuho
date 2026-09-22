@@ -15,13 +15,68 @@
 // ============================================================================
 
 import { createClient } from "@supabase/supabase-js";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ---------------------------------------------------------------------------
-//  Configuración (idéntica a src/lib/config.ts)
+//  Carga robusta de .env.local
+//  - Resuelto desde la ubicación de ESTE script (no del cwd), así funciona
+//    aunque se ejecute desde otra carpeta.
+//  - Sin dependencia de dotenv: parser mínimo compatible.
+//  - Nunca imprime valores.
+// ---------------------------------------------------------------------------
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(SCRIPT_DIR, "..");
+
+function loadEnvFile(fileName) {
+  const filePath = path.join(PROJECT_ROOT, fileName);
+  if (!fs.existsSync(filePath)) return 0;
+
+  const raw = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+  let loaded = 0;
+
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+
+    const key = trimmed.slice(0, eq).trim();
+    if (!key) continue;
+
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
+      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    // No pisa variables ya definidas en el entorno real
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+      loaded += 1;
+    }
+  }
+
+  return loaded;
+}
+
+// `.env.local` tiene precedencia sobre `.env` (convención Next.js)
+loadEnvFile(".env");
+const fromLocal = loadEnvFile(".env.local");
+
+// ---------------------------------------------------------------------------
+//  Configuración
 // ---------------------------------------------------------------------------
 const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "";
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ??
+  process.env.SUPABASE_SECRET_KEY ??
+  "";
 
 const ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL ?? "admin@distribuidora.com";
 const CLIENT_EMAIL =
@@ -40,11 +95,31 @@ function fail(message) {
   process.exit(1);
 }
 
+console.log(`Proyecto: ${PROJECT_ROOT}`);
+console.log(`Variables cargadas de .env.local: ${fromLocal}`);
+console.log(
+  `NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL ? "OK" : "FALTA"}\n` +
+    `NEXT_PUBLIC_SUPABASE_ANON_KEY: ${
+      (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)
+        ? "OK"
+        : "FALTA"
+    }\n` +
+    `SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY ? "OK" : "FALTA"}`,
+);
+
 if (!SUPABASE_URL) {
   fail(
-    "Falta NEXT_PUBLIC_SUPABASE_URL.\n" +
-      "Definila en .env.local (o en las variables de entorno de Vercel).",
+    "Falta NEXT_PUBLIC_SUPABASE_URL en .env.local (raíz del proyecto).",
   );
+}
+
+const ANON_KEY =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+if (!ANON_KEY) {
+  fail("Falta NEXT_PUBLIC_SUPABASE_ANON_KEY en .env.local.");
 }
 
 if (!SERVICE_ROLE_KEY) {
@@ -64,6 +139,7 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 });
 
 const log = (message) => console.log(`  ${message}`);
+
 
 // ---------------------------------------------------------------------------
 //  1) Organización y clientes demo (idempotente, igual que seed.sql)
